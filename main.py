@@ -49,30 +49,36 @@ for chartname, chartdata in charts.items():
 
 # Steps
 queries = json_data['state']['steps']
-markdown += '\n## Query Definitions\n\n'
 step_number = 1
-datasets = {}
+query_dict = {'aggregateflex':{},'saql':{}} 
+# Must add keys for all possible steps https://developer.salesforce.com/docs/atlas.en-us.bi_dev_guide_json.meta/bi_dev_guide_json/bi_dbjson_steps_properties.htm
 for queryname, querydata in queries.items():
     if 'datasets' in querydata:
         for dataset in querydata['datasets']:
-            print(dataset)
-            print(type(dataset))
             dataset_label = dataset['label']
-            print('dataset_label = ' + dataset_label)
             query_label = querydata.get('label')
             if not query_label:
                 query_label = queryname
-            if dataset_label in datasets:
-                datasets[dataset_label].append(query_label)
+            if dataset_label in query_dict['aggregateflex']:
+                query_dict['aggregateflex'][dataset_label].append(query_label)
             else:
-                datasets[dataset_label] = [query_label]
-print(datasets) # Need to use dict to add to markdown now
+                query_dict['aggregateflex'][dataset_label] = [query_label]
+    elif querydata['type'] == 'saql':
+        query_label = querydata['label']
+        query = querydata['query']
+        query_dict['saql'][query_label] = query
+
+markdown += '\n## Query Definitions\n\n'
+for datasetname, stepdata in query_dict['aggregateflex'].items():
+    markdown += f'### Dataset: {datasetname}\n\n'
+    for i, step in enumerate(stepdata):
+        markdown += f'{i + 1}. {step}\n'
+    markdown += '\n'
+markdown += '### SAQL\n'
+markdown += f'```\n{query_dict["saql"]["Top 10 Contact Titles by Predicted Won"]}\n ```'
 
 # Create Markdown file
 with open(f'docs/{name}.md','w') as md_file:
     md_file.write(markdown)
-    
-# will likely use nested for loops to accomplish widget + queries
-queries = json_data['state']['steps']
 
 print('Md Docs created successfully!')
