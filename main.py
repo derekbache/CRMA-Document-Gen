@@ -1,24 +1,25 @@
 import json
 import time
 from selenium import webdriver
-from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.by import By
 import os
 from dotenv import load_dotenv
 from urllib.parse import urlparse
 
+# Load env variables
+# .env file in root must contain USERNAME, PASSWORD, DASHBOARD_URL variables
 load_dotenv()
 
-# Selenium opens dashboard in Chrome so it can take images of number/chart widgets
+# Open env variables to get dashboard URL and mydomain
 dashboard_url = os.getenv('DASHBOARD_URL')
 mydomain = f'https://{urlparse(dashboard_url)}'
 
+# Selenium opens dashboard in Chrome so it can take images of number/chart widgets
 driver = webdriver.Chrome()
 driver.set_window_size(1920,1080)
 driver.get(dashboard_url)
 
-
-
+# Login
 time.sleep(1);
 driver.find_element(By.ID,"username").send_keys(os.getenv('USERNAME'));
 time.sleep(1);
@@ -26,13 +27,14 @@ driver.find_element(By.ID,"password").send_keys(os.getenv('PASSWORD'));
 time.sleep(1);
 driver.find_element(By.ID,"Login").click();
 
+# Pause for dashboard loading
 time.sleep(5)
 
 # Read the JSON file
 with open('json/predictiveFrameworkDash.json','r') as file:
     json_data = json.load(file)
 
-# Takes in filter values as a list, outputs filter statement
+# Takes in filter data as a list, outputs filters in readable format as a list
 def parse_filters(filters):
     try:
         def format_filter(filter):
@@ -86,8 +88,8 @@ def convert_chart_type(input_value):
     
     return chart_type_mapping.get(input_value, input_value)
 
-# Capture a screenshot of the element
-# Does not support multiple tabs, yet
+# Capture a screenshot of the widget using the widget name as input
+# Does not support widgets in secondary tabs, yet
 def image_capture(chart_name):
     try:
         element = driver.find_element(By.CLASS_NAME, f'widget-container_{chart_name}')
@@ -98,8 +100,7 @@ def image_capture(chart_name):
     except Exception as e:
         return [f'Error: {str(e)}']
     
-# Must figure out way to capture mydomain, for now input will do
-mydomain = 'https://searchdiscoverydemo.lightning.force.com'
+# Create initial markdown text
 markdown = ''
 name = json_data['label']
 
@@ -178,6 +179,7 @@ queries = json_data['state']['steps']
 step_number = 1
 query_dict = {'aggregateflex':{},'saqlsoql':{},'staticflex':{}} 
 
+# Restructures how steps are organized
 for queryname, querydata in queries.items():
     if querydata['type'] == 'aggregateflex':
         for dataset in querydata['datasets']:
@@ -235,8 +237,9 @@ for i, (queryname, querydata) in enumerate(query_dict['staticflex'].items(), sta
     markdown += f'| {" | ".join(querydata["headers"])} |\n| {" | ".join(["---"] * len(headers))} |\n'
     for row in querydata['rows']:
         markdown += f'| {" | ".join(row)} |\n'
+
 # Create Markdown file
 with open(f'docs/{name}.md','w') as md_file:
     md_file.write(markdown)
-# print(query_dict['aggregateflex'])
+
 print('Md Docs created successfully!')
