@@ -1,4 +1,32 @@
 import json
+import time
+from selenium import webdriver
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.common.by import By
+import os
+from dotenv import load_dotenv
+from urllib.parse import urlparse
+
+load_dotenv()
+
+# Selenium opens dashboard in Chrome so it can take images of number/chart widgets
+dashboard_url = os.getenv('DASHBOARD_URL')
+mydomain = f'https://{urlparse(dashboard_url)}'
+
+driver = webdriver.Chrome()
+driver.set_window_size(1920,1080)
+driver.get(dashboard_url)
+
+
+
+time.sleep(1);
+driver.find_element(By.ID,"username").send_keys(os.getenv('USERNAME'));
+time.sleep(1);
+driver.find_element(By.ID,"password").send_keys(os.getenv('PASSWORD'));
+time.sleep(1);
+driver.find_element(By.ID,"Login").click();
+
+time.sleep(5)
 
 # Read the JSON file
 with open('json/predictiveFrameworkDash.json','r') as file:
@@ -58,6 +86,18 @@ def convert_chart_type(input_value):
     
     return chart_type_mapping.get(input_value, input_value)
 
+# Capture a screenshot of the element
+# Does not support multiple tabs, yet
+def image_capture(chart_name):
+    try:
+        element = driver.find_element(By.CLASS_NAME, f'widget-container_{chart_name}')
+        driver.execute_script("arguments[0].scrollIntoView();", element)
+        screenshot_path = f'docs/img/{chart_name}.png'
+        time.sleep(1);
+        element.screenshot(screenshot_path)
+    except Exception as e:
+        return [f'Error: {str(e)}']
+    
 # Must figure out way to capture mydomain, for now input will do
 mydomain = 'https://searchdiscoverydemo.lightning.force.com'
 markdown = ''
@@ -86,15 +126,20 @@ markdown += '\n## Charts\n\n'
 chart_number = 1
 for chartname, chartdata in charts.items():
     if chartdata['type'] == 'number':
+        image_capture(chartname)
         chart_title = chartdata['parameters']['title']
         if not chart_title:
             chart_title = 'N/A'
         chart_step = chartdata['parameters']['step']
+
         markdown += f'{chart_number}. **{chartname}**  \n'
         markdown += f'    * Type: {chartdata["type"]}  \n'
         markdown += f'    * Title: {chart_title}  \n'
         markdown += f'    * Query: {chart_step}  \n'
+        if os.path.exists(f'./docs/img/{chartname}.png'):
+            markdown += f'    ![image](/docs/img/{chartname}.png)  \n'
     elif chartdata['type'] == 'chart':
+        image_capture(chartname)
         chart_title = chartdata['parameters']['title']['label']
         if not chart_title:
             chart_title = 'N/A'
@@ -120,6 +165,8 @@ for chartname, chartdata in charts.items():
         markdown += f'    * Trellis: {", ".join(str(trellis) for trellis in chart_columnMap_trellis)}  \n'
         markdown += f'    * Dimension(s): {", ".join(str(dimension) for dimension in chart_columnMap_dimension)}  \n'
         markdown += f'    * Plot(s): {", ".join(str(plot) for plot in chart_columnMap_plots)}  \n'
+        if os.path.exists(f'./docs/img/{chartname}.png'):
+            markdown += f'    ![image](/docs/img/{chartname}.png)  \n'
     else:
         continue
     markdown += '</br> \n'
@@ -166,7 +213,7 @@ for datasetname, stepdata in query_dict['aggregateflex'].items():
         markdown += '   * **Columns:**  \n\n'
         column_list= step[next(iter(step))]["sources"][0]["columns"]
         for column in column_list:
-            markdown += f'     - {column["name"]} = {column["field"]}  \n\n'
+            markdown += f'     - {column["name"]} = {column["field"]}  \n'
         markdown += '   * **Filters:**  \n\n'
         filter_list= step[next(iter(step))]["sources"][0]["filters"]
         parsed_filters = parse_filters(filter_list)
