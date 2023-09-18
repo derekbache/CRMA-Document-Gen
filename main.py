@@ -1,38 +1,14 @@
 import json
 import time
+import re
+import os
+import requests
+
+from datetime import date
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-import os
 from dotenv import load_dotenv
 from urllib.parse import urlparse
-
-# Load env variables
-# .env file in root must contain USERNAME, PASSWORD, DASHBOARD_URL variables
-load_dotenv()
-
-# Open env variables to get dashboard URL and mydomain
-dashboard_url = os.getenv('DASHBOARD_URL')
-mydomain = f'https://{urlparse(dashboard_url)}'
-
-# Selenium opens dashboard in Chrome so it can take images of number/chart widgets
-driver = webdriver.Chrome()
-driver.set_window_size(1920,1080)
-driver.get(dashboard_url)
-
-# Login
-time.sleep(1);
-driver.find_element(By.ID,"username").send_keys(os.getenv('USERNAME'));
-time.sleep(1);
-driver.find_element(By.ID,"password").send_keys(os.getenv('PASSWORD'));
-time.sleep(1);
-driver.find_element(By.ID,"Login").click();
-
-# Pause for dashboard loading
-time.sleep(5)
-
-# Read the JSON file
-with open('json/predictiveFrameworkDash.json','r') as file:
-    json_data = json.load(file)
 
 # Takes in filter data as a list, outputs filters in readable format as a list
 def parse_filters(filters):
@@ -94,11 +70,73 @@ def image_capture(chart_name):
     try:
         element = driver.find_element(By.CLASS_NAME, f'widget-container_{chart_name}')
         driver.execute_script("arguments[0].scrollIntoView();", element)
-        screenshot_path = f'docs/img/{chart_name}.png'
+        screenshot_path = f'documentation/img/{chart_name}.png'
         time.sleep(1);
         element.screenshot(screenshot_path)
     except Exception as e:
         return [f'Error: {str(e)}']
+
+# Download PNG of Dashboard, in progress
+def download_png(dashboard_name, dashboard_id, domain):
+    image_url = f'{domain}/analytics/download/lightning-dashboard/{dashboard_id}.png'
+    folder_path = 'documentation/img'
+
+    image_file_path = os.path.join(folder_path, f'{dashboard_name}.png')
+
+    response = requests.get(image_url)
+
+    if response.status_code == 200:
+        with open(image_file_path, 'wb') as image_file:
+            image_file.write(response.content)
+        print(f"Image saved to {image_file_path}")
+    else:
+        print(f"Failed to download image. Status code: {response.status_code}")
+# Load env variables
+# .env file in root must contain USERNAME, PASSWORD, DASHBOARD_URL variables
+load_dotenv()
+
+# Ensure project folders exist; create them if not
+base_directory = os.path.dirname(__file__)
+folders_to_create = ['documentation', 'documentation/img', 'documentation/json']
+
+for folder_path in folders_to_create:
+    full_path = os.path.join(base_directory, folder_path)
+    if not os.path.exists(full_path):
+        os.makedirs(full_path)
+
+# Open env variables to get dashboard URL and mydomain
+dashboard_url = os.getenv('DASHBOARD_URL')
+
+# Parse URL to obtain domain
+mydomain = f'https://{urlparse(dashboard_url).netloc}'
+
+# Use a regular expression to extract the 18-character digit ID
+match = re.search(r'/dashboard/([A-Za-z0-9]{18})', urlparse(dashboard_url).path)
+
+if match:
+    dashboard_id = match.group(1)
+    # download_png(dashboard_id)
+else:
+    print("Dashboard ID not found.")
+
+# Selenium opens dashboard in Chrome so it can take images of number/chart widgets
+driver = webdriver.Chrome()
+driver.set_window_size(1920,1080)
+driver.get(dashboard_url)
+
+# Login
+time.sleep(1);
+driver.find_element(By.ID,"username").send_keys(os.getenv('USERNAME'));
+driver.find_element(By.ID,"password").send_keys(os.getenv('PASSWORD'));
+driver.find_element(By.ID,"Login").click();
+
+# Pause for dashboard loading
+time.sleep(3)
+
+# Read the JSON file
+#  **** USE SELENIUM? TO OBTAIN JSON **** 
+with open('documentation/json/predictiveFrameworkDash.json','r') as file:
+    json_data = json.load(file)
     
 # Create initial markdown text
 markdown = ''
@@ -106,6 +144,11 @@ name = json_data['label']
 
 # Header
 markdown += f'# {name} Documentation\n\n'
+today = date.today()
+markdown += f'Documentation Created: {today.strftime("%B %d, %Y")}  \n'
+# vvv Must make dynamic vvv
+markdown += f'Documentation Created By: Derek Bache @ [derek.bache@searchdiscovery.com](mailto:derek.bache@searchdiscovery.com?subject=Predictive%20Framework%20Dashboard%20Documentation)  \n'
+markdown += f'Dashboard Link: [{name}]({dashboard_url})  \n'
 markdown += f'## Description  \n'
 
 # Dataset
@@ -137,8 +180,8 @@ for chartname, chartdata in charts.items():
         markdown += f'    * Type: {chartdata["type"]}  \n'
         markdown += f'    * Title: {chart_title}  \n'
         markdown += f'    * Query: {chart_step}  \n'
-        if os.path.exists(f'./docs/img/{chartname}.png'):
-            markdown += f'    ![image](/docs/img/{chartname}.png)  \n'
+        if os.path.exists(f'./documentation/img/{chartname}.png'):
+            markdown += f'    ![image](/documentation/img/{chartname}.png)  \n'
     elif chartdata['type'] == 'chart':
         image_capture(chartname)
         chart_title = chartdata['parameters']['title']['label']
@@ -166,8 +209,8 @@ for chartname, chartdata in charts.items():
         markdown += f'    * Trellis: {", ".join(str(trellis) for trellis in chart_columnMap_trellis)}  \n'
         markdown += f'    * Dimension(s): {", ".join(str(dimension) for dimension in chart_columnMap_dimension)}  \n'
         markdown += f'    * Plot(s): {", ".join(str(plot) for plot in chart_columnMap_plots)}  \n'
-        if os.path.exists(f'./docs/img/{chartname}.png'):
-            markdown += f'    ![image](/docs/img/{chartname}.png)  \n'
+        if os.path.exists(f'./documentation/img/{chartname}.png'):
+            markdown += f'    ![image](/documentation/img/{chartname}.png)  \n'
     else:
         continue
     markdown += '</br> \n'
@@ -239,7 +282,7 @@ for i, (queryname, querydata) in enumerate(query_dict['staticflex'].items(), sta
         markdown += f'| {" | ".join(row)} |\n'
 
 # Create Markdown file
-with open(f'docs/{name}.md','w') as md_file:
+with open(f'documentation/{name}.md','w') as md_file:
     md_file.write(markdown)
 
-print('Md Docs created successfully!')
+print('Md documentation created successfully!')
