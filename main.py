@@ -8,7 +8,17 @@ from datetime import date
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from dotenv import load_dotenv
-from urllib.parse import urlparse
+from urllib.parse import urlparse, quote
+
+# *** TO DO LIST ***
+# Tables never have title
+# Tables are missing groups, joins, prob need their own section
+# Add in support for other widgets https://developer.salesforce.com/docs/atlas.en-us.bi_dev_guide_json.meta/bi_dev_guide_json/bi_dbjson_widgets_parameters.htm
+# Update Step Docs to more naturally parse columns
+# Ex: 'A = ['count', '*']' to Count of Rows
+# 'B = ['avg', 'Opportunities_predictor_impact']' to Avg of Opportunities_predictor_impact
+# Missing Source Filters
+
 
 # Takes in filter data as a list, outputs filters in readable format as a list
 def parse_filters(filters):
@@ -91,8 +101,10 @@ def download_png(dashboard_name, dashboard_id, domain):
         print(f"Image saved to {image_file_path}")
     else:
         print(f"Failed to download image. Status code: {response.status_code}")
+
+
 # Load env variables
-# .env file in root must contain USERNAME, PASSWORD, DASHBOARD_URL variables
+# .env file in root must contain USERNAME, PASSWORD, DASHBOARD_URL, NAME, EMAIL variables
 load_dotenv()
 
 # Ensure project folders exist; create them if not
@@ -106,6 +118,8 @@ for folder_path in folders_to_create:
 
 # Open env variables to get dashboard URL and mydomain
 dashboard_url = os.getenv('DASHBOARD_URL')
+submittername = os.getenv('NAME')
+submitteremail = os.getenv('EMAIL')
 
 # Parse URL to obtain domain
 mydomain = f'https://{urlparse(dashboard_url).netloc}'
@@ -131,7 +145,7 @@ driver.find_element(By.ID,"password").send_keys(os.getenv('PASSWORD'));
 driver.find_element(By.ID,"Login").click();
 
 # Pause for dashboard loading
-time.sleep(3)
+time.sleep(5)
 
 # Read the JSON file
 #  **** USE SELENIUM? TO OBTAIN JSON **** 
@@ -146,8 +160,7 @@ name = json_data['label']
 markdown += f'# {name} Documentation\n\n'
 today = date.today()
 markdown += f'Documentation Created: {today.strftime("%B %d, %Y")}  \n'
-# vvv Must make dynamic vvv
-markdown += f'Documentation Created By: Derek Bache @ [derek.bache@searchdiscovery.com](mailto:derek.bache@searchdiscovery.com?subject=Predictive%20Framework%20Dashboard%20Documentation)  \n'
+markdown += f'Documentation Created By: {submittername} @ [{submitteremail}](mailto:{submitteremail}?subject={quote(name)})  \n'
 markdown += f'Dashboard Link: [{name}]({dashboard_url})  \n'
 markdown += f'## Description  \n'
 
@@ -169,9 +182,9 @@ charts = json_data['state']['widgets']
 markdown += '\n## Charts\n\n'
 chart_number = 1
 for chartname, chartdata in charts.items():
-    if chartdata['type'] == 'number':
+    if chartdata['type'] == 'number' or chartdata['type'] == 'table':
         image_capture(chartname)
-        chart_title = chartdata['parameters']['title']
+        chart_title = chartdata['parameters'].get('title')
         if not chart_title:
             chart_title = 'N/A'
         chart_step = chartdata['parameters']['step']
