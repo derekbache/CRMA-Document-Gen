@@ -11,14 +11,9 @@ from dotenv import load_dotenv
 from urllib.parse import urlparse, quote
 
 # *** TO DO LIST ***
-# Tables never have title
-# Tables are missing groups, joins, prob need their own section
 # Add in support for other widgets https://developer.salesforce.com/docs/atlas.en-us.bi_dev_guide_json.meta/bi_dev_guide_json/bi_dbjson_widgets_parameters.htm
-# Update Step Docs to more naturally parse columns
-# Ex: 'A = ['count', '*']' to Count of Rows
-# 'B = ['avg', 'Opportunities_predictor_impact']' to Avg of Opportunities_predictor_impact
-# Missing Source Filters
-
+# Doesn't support multiple tabs
+#  **** USE SELENIUM? TO OBTAIN JSON **** 
 
 # Takes in filter data as a list, outputs filters in readable format as a list
 def parse_filters(filters):
@@ -27,6 +22,10 @@ def parse_filters(filters):
             field, values, operator = filter
             if operator == '>=<=':
                 operator = 'between'
+            if operator == 'isnotnull':
+                operator = 'is not null'
+            if operator == 'isnull':
+                operator = 'is null'
             value_str = ', '.join(str(value) for value in values)
             if operator == 'in' or operator == 'not in':
                 return f'{value_str} {operator} {field}'
@@ -35,8 +34,21 @@ def parse_filters(filters):
         
         formatted_filters = [format_filter(filter) for filter in filters]
         return formatted_filters
-    except Exception as e:
-        return [f'Error: {str(e)}']
+    except:
+        return filters
+    
+# Takes in column data as a list, outputs them in readable format as a list
+def parse_column(column):
+    try:
+        if len(column) == 1:
+            return column
+        operation, field = column
+        if field == '*':
+            field = 'Rows'
+        formatted_column = f'{operation.capitalize()} of {field}'
+        return formatted_column
+    except:
+        return column
 
 # Converts shortened visualization type and returns it in a more readable format
 def convert_chart_type(input_value):
@@ -76,12 +88,12 @@ def convert_chart_type(input_value):
 
 # Capture a screenshot of the widget using the widget name as input
 # Does not support widgets in secondary tabs, yet
-def image_capture(chart_name):
+def image_capture(chart_name, pause_seconds=1):
     try:
         element = driver.find_element(By.CLASS_NAME, f'widget-container_{chart_name}')
         driver.execute_script("arguments[0].scrollIntoView();", element)
         screenshot_path = f'documentation/img/{chart_name}.png'
-        time.sleep(1);
+        time.sleep(pause_seconds);
         element.screenshot(screenshot_path)
     except Exception as e:
         return [f'Error: {str(e)}']
@@ -148,7 +160,6 @@ driver.find_element(By.ID,"Login").click();
 time.sleep(5)
 
 # Read the JSON file
-#  **** USE SELENIUM? TO OBTAIN JSON **** 
 with open('documentation/json/predictiveFrameworkDash.json','r') as file:
     json_data = json.load(file)
     
@@ -169,7 +180,7 @@ datasets = json_data['datasets']
 markdown += '## Datasets\n\n'
 for index, dataset in enumerate(datasets, start=1):
     datasetid = dataset['url'].split('/')[-1]
-    markdown += f'{index}. ' + '[' + f'{dataset["name"]}' + '](' + f'{mydomain}' + '/lightning/r/EdgeMart/' f'{datasetid}' + '/view)\n\n'
+    markdown += f'{index}. [{dataset["name"]}]({mydomain}/lightning/r/EdgeMart/{datasetid}/view)  \n\n'
 
 # Filters
 filters = json_data['state']['filters']
@@ -182,7 +193,7 @@ charts = json_data['state']['widgets']
 markdown += '\n## Charts\n\n'
 chart_number = 1
 for chartname, chartdata in charts.items():
-    if chartdata['type'] == 'number' or chartdata['type'] == 'table':
+    if chartdata['type'] == 'number':
         image_capture(chartname)
         chart_title = chartdata['parameters'].get('title')
         if not chart_title:
@@ -196,12 +207,15 @@ for chartname, chartdata in charts.items():
         if os.path.exists(f'./documentation/img/{chartname}.png'):
             markdown += f'    ![image](/documentation/img/{chartname}.png)  \n'
     elif chartdata['type'] == 'chart':
-        image_capture(chartname)
         chart_title = chartdata['parameters']['title']['label']
         if not chart_title:
             chart_title = 'N/A'
         chart_step = chartdata['parameters']['step']
         chart_visual = convert_chart_type(chartdata['parameters']['visualizationType'])
+        if chart_visual == 'bubblemap':
+            image_capture(chartname, 3)
+        else:
+            image_capture(chartname)
         chart_columnMap_trellis = chartdata['parameters']['columnMap']['trellis']
         if not chart_columnMap_trellis:
             chart_columnMap_trellis = ['N/A']
@@ -224,6 +238,16 @@ for chartname, chartdata in charts.items():
         markdown += f'    * Plot(s): {", ".join(str(plot) for plot in chart_columnMap_plots)}  \n'
         if os.path.exists(f'./documentation/img/{chartname}.png'):
             markdown += f'    ![image](/documentation/img/{chartname}.png)  \n'
+    elif chartdata['type'] == 'table':
+        image_capture(chartname)
+        chart_step = chartdata['parameters']['step']
+        columns = chartdata['parameters']['columns']
+        markdown += f'{chart_number}. **{chartname}**  \n'
+        markdown += f'    * Type: {chartdata["type"]}  \n'
+        markdown += f'    * Query: {chart_step}  \n'
+        markdown += f'    * Columns: {", ".join(columns)}  \n'
+        if os.path.exists(f'./documentation/img/{chartname}.png'):
+            markdown += f'    ![image](/documentation/img/{chartname}.png)  \n'
     else:
         continue
     markdown += '</br> \n'
@@ -243,7 +267,7 @@ for queryname, querydata in queries.items():
             query_label = querydata.get('label')
             if not query_label:
                 query_label = queryname
-            query = {queryname:{'orders':querydata['query']['orders'], 'sources':querydata['query']['sources']}}
+            query = {query_label:{'orders':querydata['query']['orders'], 'sources':querydata['query']['sources'], 'sourceFilters':querydata['query']['sourceFilters']}}
             if dataset_label in query_dict['aggregateflex']:
                 query_dict['aggregateflex'][dataset_label].append(query)
             else:
@@ -263,24 +287,38 @@ for queryname, querydata in queries.items():
         rows = [[item[column] for column in headers] for item in querydata['values']]
         query_dict['staticflex'][query_label] = {'headers':headers,'rows':rows}
 
-markdown += '\n## Query Definitions  \n\n'
+markdown += '\n## Query Definitions  \n'
 for datasetname, stepdata in query_dict['aggregateflex'].items():
-    markdown += f'### Dataset: {datasetname}\n\n'
+    markdown += f'### Dataset: {datasetname}  \n'
     for i, step in enumerate(stepdata, start=1):
         markdown += f'{i}. **{next(iter(step))}**  \n'
-        markdown += '   * **Columns:**  \n\n'
-        column_list= step[next(iter(step))]["sources"][0]["columns"]
+        markdown += '   * **Columns:**  \n'
+        column_list = step[next(iter(step))]["sources"][0]["columns"]
         for column in column_list:
-            markdown += f'     - {column["name"]} = {column["field"]}  \n'
-        markdown += '   * **Filters:**  \n\n'
-        filter_list= step[next(iter(step))]["sources"][0]["filters"]
+            markdown += f'     - {column["name"]} = {parse_column(column["field"])}  \n'
+        filter_list = step[next(iter(step))]["sources"][0]["filters"]
         parsed_filters = parse_filters(filter_list)
-        if not parsed_filters:
-            markdown += '     N/A\n'
-        else:
+        if parsed_filters:
+            markdown += '   * **Column Filters:**  \n'
             for filter in parse_filters(filter_list):
-                markdown += f'     - {filter}\n'
-        markdown += '\n</br>\n\n'
+                markdown += f'     - {filter}  \n'
+        markdown += '   * **Group By:**  \n'
+        group_list = step[next(iter(step))]["sources"][0]["groups"]
+        for group in group_list:
+            markdown += f'     - {group}  \n'
+        source_filter_list = step[next(iter(step))].get('sourceFilters')
+        print('source_filter_list')
+        print(source_filter_list)
+        if source_filter_list:
+            for source, filter in source_filter_list.items():
+                markdown += '   * **Source Filters:**  \n'
+                for filter in parse_filters(filter["filters"]):
+                    markdown += f'     - {filter}  \n'
+                # print('step:')
+                # print(step[next(iter(step))])
+                # print('source = ' + source)
+                # print('filters:')
+                # print(parse_filters(filter['filters']))
     markdown += '\n'
 markdown += '### SAQL/SOQL Queries\n'
 for i, (queryname, querydata) in enumerate(query_dict['saqlsoql'].items(), start = 1):
